@@ -1,9 +1,17 @@
 import streamlit as st
 import time
 import re
+import pandas as pd
+
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+
+# importer le dataset
+from data import data
+
 
 # =========================
-# Configuration de la page
+# Configuration page
 # =========================
 st.set_page_config(
     page_title="AI Chatbot",
@@ -11,26 +19,31 @@ st.set_page_config(
     layout="centered",
 )
 
+
 # =========================
-# Initialisation session
+# Session State
 # =========================
 if "messages" not in st.session_state:
     st.session_state.messages = []
+
 
 # =========================
 # Sidebar
 # =========================
 def show_sidebar():
+
     st.sidebar.title("Informations")
-    st.sidebar.write("Version : 1.0")
-    st.sidebar.write("Réunion : samedi")
-    st.sidebar.write("Contact : ai.chatbot@example.com")
+
+    st.sidebar.write("Version : 3.0 ML")
+    st.sidebar.write("Réunion : mercredi")
+    st.sidebar.write("Contact : ai.club@ipsas.tn")
 
 
 # =========================
-# Génération du message
+# Chat input
 # =========================
 def generate_message():
+
     return st.chat_input("Entrez votre message")
 
 
@@ -42,6 +55,7 @@ def show_conversation():
     for message in st.session_state.messages:
 
         with st.chat_message(message["role"]):
+
             st.markdown(message["content"])
 
 
@@ -50,7 +64,7 @@ def show_conversation():
 #######################################################
 
 # =========================
-# 1. Nettoyage du texte
+# Nettoyage texte
 # =========================
 def clean_text(text):
 
@@ -66,120 +80,63 @@ def clean_text(text):
 
 
 # =========================
-# 2. Tokenisation
+# Préparation X et y
 # =========================
-def decouper_en_mots(text):
-    return text.split()
+def prepare_xy(dataframe):
 
+    X = dataframe["clean_message"]
 
-# =========================
-# 3. Stopwords
-# =========================
-STOPWORDS = {
-    "le", "la", "les", "de", "des", "du", "un", "une", "et",
-    "est", "a", "au", "aux", "je", "tu", "il", "elle", "on",
-    "nous", "vous", "ils", "elles", "mon", "ma", "mes",
-    "ton", "ta", "tes", "son", "sa", "ses", "ce", "cet",
-    "cette", "ces", "dans", "sur", "pour", "par", "avec",
-    "en", "que", "qui", "quoi", "où", "quand", "comment",
-    "bonjour", "me"
-}
+    y = dataframe["intent"]
 
-def supprimer_stopwords(text):
-
-    mots = decouper_en_mots(text)
-
-    mots_sans_stopwords = [
-        mot for mot in mots
-        if mot not in STOPWORDS
-    ]
-
-    return mots_sans_stopwords
+    return X, y
 
 
 # =========================
-# Pipeline NLP
+# TF-IDF
 # =========================
-def preprocess_text(text):
+def create_vectorizer():
 
-    text = clean_text(text)
+    vectorizer = TfidfVectorizer()
 
-    mots = supprimer_stopwords(text)
-
-    return mots
+    return vectorizer
 
 
 # =========================
-# Intentions
+# Entraînement modèle
 # =========================
-INTENTS = {
+def train_model(X_train, y_train):
 
-    "salutation": [
-        "salut", "hello", "bonsoir", "salam"
-    ],
+    model = MultinomialNB()
 
-    "planning": [
-        "planning", "horaire", "reunion",
-        "réunion", "seance", "séance"
-    ],
+    model.fit(X_train, y_train)
 
-    "contact": [
-        "contact", "email", "mail",
-        "gmail", "telephone", "téléphone"
-    ],
-
-    "activites": [
-        "activité", "activites", "activités",
-        "atelier", "formation", "club", "ieee"
-    ],
-
-    "lieu": [
-        "lieu", "salle", "classe",
-        "endroit", "localisation",
-        "ou", "où", "séance"
-    ]
-}
+    return model
 
 
 # =========================
-# Détection intention
+# Prediction intention
 # =========================
-def detect_intent(user_input):
+def predict_intent(user_input, vectorizer, model):
 
-    dict_score = {}
+    cleaned = clean_text(user_input)
 
-    mots_utiles = preprocess_text(user_input)
+    vector = vectorizer.transform([cleaned])
 
-    for intent, keywords in INTENTS.items():
+    prediction = model.predict(vector)
 
-        score = sum(
-            1 for word in keywords
-            if word in mots_utiles
-        )
-
-        dict_score[intent] = score
-
-    max_score = max(dict_score.values())
-
-    if max_score == 0:
-        return "fallback"
-
-    for intent, score in dict_score.items():
-
-        if score == max_score:
-            return intent
+    return prediction[0]
 
 
 # =========================
-# Réponses
+# Réponses chatbot
 # =========================
 RESPONSES = {
 
     "salutation":
-        "Bonjour ! Bienvenue dans AI Club Assistant.",
+        "Bonjour 👋 Bienvenue dans AI Club Assistant.",
 
     "planning":
-        "Les réunions ont lieu les mercredis à 13h30.",
+        "Les réunions ont lieu chaque mercredi à 13h30.",
 
     "contact":
         "Contact : ai.club@ipsas.tn",
@@ -188,65 +145,108 @@ RESPONSES = {
         "Le club propose des ateliers en IA, Python, NLP et développement de chatbots.",
 
     "lieu":
-        "Les séances se déroulent dans la salle de conférence.",
-
-    "fallback":
-        "Je n’ai pas compris. Peux-tu reformuler ta question ?"
+        "Les séances se déroulent à l'IPSAS selon le planning affiché."
 }
 
 
 # =========================
 # Génération réponse
 # =========================
-def generate_response_v2(user_input):
+def generate_response_v3(user_input, vectorizer, model):
 
-    intention = detect_intent(user_input)
+    intent = predict_intent(
+        user_input,
+        vectorizer,
+        model
+    )
 
-    response = RESPONSES[intention]
+    return RESPONSES.get(
+        intent,
+        "Je ne comprends pas. Peux-tu reformuler ?"
+    )
 
-    return response
 
+#######################################################
+# MACHINE LEARNING
+#######################################################
 
 # =========================
-# Main
+# Création dataframe
 # =========================
+df = pd.DataFrame(
+    data,
+    columns=["message", "intent"]
+)
+
+# nettoyage dataset
+df["clean_message"] = df["message"].apply(clean_text)
+
+# préparation X et y
+X, y = prepare_xy(df)
+
+# =========================
+# Vectorisation
+# =========================
+vectorizer = create_vectorizer()
+
+X_vector = vectorizer.fit_transform(X)
+
+# =========================
+# Entraînement modèle
+# =========================
+model = train_model(X_vector, y)
+
+
+#######################################################
+# MAIN
+#######################################################
 def main():
 
-    st.title("🤖 AI Chatbot")
-    st.write("Posez votre question au bot.")
+    st.title("🤖 AI Chatbot ML")
+
+    st.write("Posez votre question au chatbot.")
 
     show_sidebar()
 
-    # historique
+    # afficher historique
     show_conversation()
 
-    # input user
+    # message utilisateur
     user_message = generate_message()
 
     if user_message:
 
-        # sauvegarde user
+        # sauvegarder user
         st.session_state.messages.append({
             "role": "user",
             "content": user_message
         })
 
+        # afficher user
         with st.chat_message("user"):
+
             st.markdown(user_message)
 
         # génération réponse
         with st.spinner("Le bot réfléchit..."):
+
             time.sleep(1)
 
-            bot_response = generate_response_v2(user_message)
+            bot_response = generate_response_v3(
+                user_message,
+                vectorizer,
+                model
+            )
 
-        # sauvegarde bot
+        # sauvegarder bot
         st.session_state.messages.append({
             "role": "assistant",
             "content": bot_response
         })
 
+        # afficher bot
         with st.chat_message("assistant"):
+
             st.markdown(bot_response)
 
 
