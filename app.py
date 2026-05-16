@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import re
 
 # =========================
 # Configuration de la page
@@ -34,35 +35,176 @@ def generate_message():
 
 
 # =========================
-# Réponse du bot
-# =========================
-def generate_response(user_input):
-
-    user_input = user_input.lower().strip()
-
-    if "bonjour" in user_input:
-        return "Bonjour ! Comment puis-je vous aider aujourd'hui ?"
-
-    elif "ça va" in user_input:
-        return "Je vais très bien 😊"
-
-    elif "merci" in user_input:
-        return "Avec plaisir !"
-
-    else:
-        return "Je ne comprends pas encore cette question."
-
-
-# =========================
 # Affichage conversation
 # =========================
 def show_conversation():
 
-    # Afficher tous les messages sauvegardés
     for message in st.session_state.messages:
 
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
+
+
+#######################################################
+# NLP
+#######################################################
+
+# =========================
+# 1. Nettoyage du texte
+# =========================
+def clean_text(text):
+
+    text = text.lower()
+
+    # supprimer ponctuation
+    text = re.sub(r"[^\w\sàâéèêëîïôùûüç]", " ", text)
+
+    # supprimer espaces multiples
+    text = re.sub(r"\s+", " ", text)
+
+    return text.strip()
+
+
+# =========================
+# 2. Tokenisation
+# =========================
+def decouper_en_mots(text):
+    return text.split()
+
+
+# =========================
+# 3. Stopwords
+# =========================
+STOPWORDS = {
+    "le", "la", "les", "de", "des", "du", "un", "une", "et",
+    "est", "a", "au", "aux", "je", "tu", "il", "elle", "on",
+    "nous", "vous", "ils", "elles", "mon", "ma", "mes",
+    "ton", "ta", "tes", "son", "sa", "ses", "ce", "cet",
+    "cette", "ces", "dans", "sur", "pour", "par", "avec",
+    "en", "que", "qui", "quoi", "où", "quand", "comment",
+    "bonjour", "me"
+}
+
+def supprimer_stopwords(text):
+
+    mots = decouper_en_mots(text)
+
+    mots_sans_stopwords = [
+        mot for mot in mots
+        if mot not in STOPWORDS
+    ]
+
+    return mots_sans_stopwords
+
+
+# =========================
+# Pipeline NLP
+# =========================
+def preprocess_text(text):
+
+    text = clean_text(text)
+
+    mots = supprimer_stopwords(text)
+
+    return mots
+
+
+# =========================
+# Intentions
+# =========================
+INTENTS = {
+
+    "salutation": [
+        "salut", "hello", "bonsoir", "salam"
+    ],
+
+    "planning": [
+        "planning", "horaire", "reunion",
+        "réunion", "seance", "séance"
+    ],
+
+    "contact": [
+        "contact", "email", "mail",
+        "gmail", "telephone", "téléphone"
+    ],
+
+    "activites": [
+        "activité", "activites", "activités",
+        "atelier", "formation", "club", "ieee"
+    ],
+
+    "lieu": [
+        "lieu", "salle", "classe",
+        "endroit", "localisation",
+        "ou", "où", "séance"
+    ]
+}
+
+
+# =========================
+# Détection intention
+# =========================
+def detect_intent(user_input):
+
+    dict_score = {}
+
+    mots_utiles = preprocess_text(user_input)
+
+    for intent, keywords in INTENTS.items():
+
+        score = sum(
+            1 for word in keywords
+            if word in mots_utiles
+        )
+
+        dict_score[intent] = score
+
+    max_score = max(dict_score.values())
+
+    if max_score == 0:
+        return "fallback"
+
+    for intent, score in dict_score.items():
+
+        if score == max_score:
+            return intent
+
+
+# =========================
+# Réponses
+# =========================
+RESPONSES = {
+
+    "salutation":
+        "Bonjour ! Bienvenue dans AI Club Assistant.",
+
+    "planning":
+        "Les réunions ont lieu les mercredis à 13h30.",
+
+    "contact":
+        "Contact : ai.club@ipsas.tn",
+
+    "activites":
+        "Le club propose des ateliers en IA, Python, NLP et développement de chatbots.",
+
+    "lieu":
+        "Les séances se déroulent dans la salle de conférence.",
+
+    "fallback":
+        "Je n’ai pas compris. Peux-tu reformuler ta question ?"
+}
+
+
+# =========================
+# Génération réponse
+# =========================
+def generate_response_v2(user_input):
+
+    intention = detect_intent(user_input)
+
+    response = RESPONSES[intention]
+
+    return response
 
 
 # =========================
@@ -75,36 +217,35 @@ def main():
 
     show_sidebar()
 
-    # Afficher historique
+    # historique
     show_conversation()
 
-    # Entrée utilisateur
+    # input user
     user_message = generate_message()
 
     if user_message:
 
-        # Sauvegarder message utilisateur
+        # sauvegarde user
         st.session_state.messages.append({
             "role": "user",
             "content": user_message
         })
 
-        # Afficher utilisateur
         with st.chat_message("user"):
             st.markdown(user_message)
 
-        # Générer réponse
+        # génération réponse
         with st.spinner("Le bot réfléchit..."):
             time.sleep(1)
-            bot_response = generate_response(user_message)
 
-        # Sauvegarder réponse bot
+            bot_response = generate_response_v2(user_message)
+
+        # sauvegarde bot
         st.session_state.messages.append({
             "role": "assistant",
             "content": bot_response
         })
 
-        # Afficher réponse bot
         with st.chat_message("assistant"):
             st.markdown(bot_response)
 
